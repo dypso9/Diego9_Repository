@@ -27,7 +27,7 @@ def automate_gcs_to_bigquery():
     
     print(f"Processing files in gs://{BUCKET_NAME}...\n")
 
-    # 4. Iterate over each file and create its respective table.
+    # 4. Iterate over each file and create/append to its respective target table.
     for blob in blobs:
         # Ignore empty virtual directories, if any.
         if blob.name.endswith('/'):
@@ -35,34 +35,75 @@ def automate_gcs_to_bigquery():
             
         print(f"--- Processing file: {blob.name} ---")
         
-        # Generate a clean table name based on the filename (and preserve path context)
-        # Replacing slashes avoids name collisions if files share names in different folders
-        clean_name = blob.name.replace("/", "_")
-        table_name, extension = os.path.splitext(clean_name)
-        
-        # Clean disallowed characters from BigQuery table names
-        table_name = table_name.replace("-", "_").replace(" ", "_").replace(".", "_")
-        
-        # Define the full path for the file and the destination table.
-        uri_file = f"gs://{BUCKET_NAME}/{blob.name}"
-        table_ref = dataset_ref.table(table_name)
-        
-        # Detect the format based on the file extension.
+        file_name = os.path.basename(blob.name)
+        _, extension = os.path.splitext(file_name)
         clean_ext = extension.lower().replace(".", "")
         
+        # Define the full URI path for the source file
+        uri_file = f"gs://{BUCKET_NAME}/{blob.name}"
+        
         # ==============================================================
-        # DYNAMIC CONFIGURATION BASED ON FILE EXTENSION
+        # CRITICAL UPDATE: FILE IDENTIFICATION & TARGET TABLE ROUTING
+        # ==============================================================
+        # Base schema fallback variables
+        explicit_schema = None
+        
+        if "crm_accounts" in blob.name:
+            # Route all variations of accounts into a single historical destination table
+            table_name = "crm_accounts"
+            # Explicitly enforce string schema to bypass mismatched column positions and data corruption
+            explicit_schema = [
+                bigquery.SchemaField("account_id", "STRING"),
+                bigquery.SchemaField("name", "STRING"),
+                bigquery.SchemaField("industry", "STRING"),
+                bigquery.SchemaField("annual_revenue", "STRING"),
+                bigquery.SchemaField("employee_count", "STRING"),
+                bigquery.SchemaField("country", "STRING"),
+                bigquery.SchemaField("expected_close_date", "STRING"),
+                bigquery.SchemaField("deal_stage", "STRING"),
+                bigquery.SchemaField("assigned_owner", "STRING"),
+                bigquery.SchemaField("created_at", "STRING"),
+                bigquery.SchemaField("updated_at", "STRING")
+            ]
+        elif "crm_contacts" in blob.name:
+            # Route all variations of contacts into its own historical destination table
+            table_name = "crm_contacts"
+            # Fallback 8-column layout using safe data types for text data containing bad commas
+            explicit_schema = [
+                bigquery.SchemaField("col1", "STRING"), bigquery.SchemaField("col2", "STRING"),
+                bigquery.SchemaField("col3", "STRING"), bigquery.SchemaField("col4", "STRING"),
+                bigquery.SchemaField("col5", "STRING"), bigquery.SchemaField("col6", "STRING"),
+                bigquery.SchemaField("col7", "STRING"), bigquery.SchemaField("col8", "STRING")
+            ]
+        else:
+            # Standard treatment for clean files outside of the corrupted CRM subfolders
+            clean_name = blob.name.replace("/", "_")
+            table_name, _ = os.path.splitext(clean_name)
+            table_name = table_name.replace("-", "_").replace(" ", "_").replace(".", "_")
+
+        table_ref = dataset_ref.table(table_name)
+        
+        # ==============================================================
+        # DYNAMIC CONFIGURATION BASED ON FILE EXTENSION & SCHEMA RULES
         # ==============================================================
         if clean_ext == "csv":
             source_format = bigquery.SourceFormat.CSV
-            # For CSV: Enable autodetect and allow ultra-high tolerance for bad rows
+            
             job_config = bigquery.LoadJobConfig(
                 source_format=source_format,
-                autodetect=True,
-                max_bad_records=50000,  # <-- High tolerance to bypass massively corrupted crm files
-                allow_quoted_newlines=True, # <-- Helps BigQuery parse text strings spanning multiple lines
-                write_disposition=bigquery.WriteDisposition.WRITE_TRUNCATE
+                max_bad_records=50000,       # High tolerance limit to bypass bad rows
+                allow_quoted_newlines=True,  # Handles text blocks containing multi-line values
+                ignore_unknown_values=True,  # Discards the 12th extra column in an 11-column table layout
+                # Appends data since multiple daily crm dumps belong to the same entities
+                write_disposition=bigquery.WriteDisposition.WRITE_APPEND if explicit_schema else bigquery.WriteDisposition.WRITE_TRUNCATE
             )
+            
+            if explicit_schema:
+                job_config.schema = explicit_schema
+                job_config.autodetect = False
+            else:
+                job_config.autodetect = True
+                
         elif clean_ext == "parquet":
             source_format = bigquery.SourceFormat.PARQUET
             job_config = bigquery.LoadJobConfig(
@@ -95,11 +136,11 @@ def automate_gcs_to_bigquery():
             )
             load_job.result()  # Wait for the loading job to complete.
             
-            # Confirmation of the created table
+            # Confirmation of the created table status
             created_table = bq_client.get_table(table_ref)
-            print(f"✔ Table '{table_name}' created/updated with {created_table.num_rows} rows.\n")
+            print(f"✔ Target Table '{table_name}' processed. Current row count: {created_table.num_rows}\n")
         except Exception as e:
-            # By catching the error here, the loop does not break and will process the rest of the bucket
+            # Loop continues safely if an unexpected underlying data breakdown happens
             print(f"❌ Skipped/Failed file {blob.name} due to format errors: {e}\n")
 
     print("====== The entire bucket has been processed. ======")
