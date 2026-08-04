@@ -42,7 +42,6 @@ def run_iowa_liquor_etl():
             volume_sold_liters,
             volume_sold_gallons
         FROM `bigquery-public-data.iowa_liquor_sales.sales`
-        WHERE date >= '2025-11-04' and date <= '2026-05-02'
         LIMIT 100
         -- Filtro opcional para limitar el tamaño de extracción
     """
