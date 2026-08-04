@@ -8,7 +8,7 @@ def run_iowa_liquor_etl():
 
     # 2. Configurar el destino (Reemplaza con tus propios IDs)
     PROJECT_ID = "technical-assessment-504501"
-    DATASET_ID = "iowa_liquor_sales_data"
+    DATASET_ID = "alchemia_dataset"
     TABLE_ID = "iowa_liquor_sales_extracted"
     
     destination_table_ref = f"{PROJECT_ID}.{DATASET_ID}.{TABLE_ID}"
