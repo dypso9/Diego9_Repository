@@ -52,15 +52,20 @@ def run_iowa_liquor_etl():
         write_disposition=bigquery.WriteDisposition.WRITE_TRUNCATE # Reemplaza la tabla si ya existe
     )
 
-    print(f"Iniciando la extracción y carga hacia: {destination_table_ref}...")
-    
-    # Executar la consulta de extracción y carga masiva
-    query_job = client.query(query_string, job_config=job_config)
-    
-    # Esperar a que el Job finalice por completo
-    query_job.result()
-
-    print(f"¡Éxito! Datos cargados correctamente en {destination_table_ref}.")
+    with open("registro_etl.txt", "w") as f:
+        f.write("Iniciando el script...\n")
+        
+        try:
+            query_job = client.query(query_string, job_config=job_config)
+            f.write(f"Job enviado a BigQuery con ID: {query_job.job_id}\n")
+            
+            # Esperar el resultado real de Google Cloud
+            result = query_job.result()
+            
+            f.write("¡Google Cloud respondio con exito!\n")
+            print("¡Éxito en consola!")
+        except Exception as e:
+            f.write(f"Ocurrio un error interno: {str(e)}\n")
 
 if __name__ == "__main__":
     run_iowa_liquor_etl()
