@@ -38,6 +38,6 @@ jobs:
      # ==============================================================
     # EXTENSION STEP: RUN PUBLIC IOWA LIQUOR EXTRACTION
     # ==============================================================
-    #- name: Run Iowa Liquor Sales ETL Script
-     # run: |
-       # python etl_iowa_liquor.py
+    - name: Run Iowa Liquor Sales ETL Script
+      run: |
+        python etl_iowa_liquor.py
