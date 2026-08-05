@@ -67,8 +67,8 @@ def automate_gcs_to_bigquery():
         table_ref = dataset_ref.table(table_name)
         
         # Extract file URIs and formats from the group batch
-        uris = [item[0] for item in file_list]
-        first_ext = file_list[0][1]
+        uris = [item for item in file_list]
+        first_ext = file_list
         
         explicit_schema = None
         
@@ -126,9 +126,12 @@ def automate_gcs_to_bigquery():
             is_combined_table = table_name in ["crm_accounts", "crm_contacts", "crm_opportunities"]
             write_mode = bigquery.WriteDisposition.WRITE_APPEND if is_combined_table else bigquery.WriteDisposition.WRITE_TRUNCATE
             
+            # DYNAMIC CONDITIONAL ROUTING: Only skip the header row if processing crm_contacts
+            rows_to_skip = 1 if table_name == "crm_contacts" else 0
+            
             job_config = bigquery.LoadJobConfig(
                 source_format=bigquery.SourceFormat.CSV,
-                skip_leading_rows=1,         # Removes the header row from extraction files
+                skip_leading_rows=rows_to_skip, # Dynamic row skip assignment
                 max_bad_records=50000,       
                 allow_quoted_newlines=True,  
                 ignore_unknown_values=True,  
@@ -165,7 +168,7 @@ def automate_gcs_to_bigquery():
         try:
             print(f"Submitting {len(uris)} files grouped together into a single Job for '{table_name}'...")
             load_job = bq_client.load_table_from_uri(
-                uris,  # Submitting the complete list of paths together
+                uris,  
                 table_ref, 
                 job_config=job_config
             )
