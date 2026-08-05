@@ -81,6 +81,7 @@ def automate_gcs_to_bigquery():
         # ==============================================================
         if table_name == "crm_accounts":
             explicit_schema = [
+                bigquery.SchemaField("account_id", "STRING"),
                 bigquery.SchemaField("account_name", "STRING"),
                 bigquery.SchemaField("city", "STRING"),
                 bigquery.SchemaField("address", "STRING"),
