@@ -4,7 +4,7 @@ from google.cloud import bigquery
 from google.api_core.exceptions import Conflict
 
 # CONFIGURATION
-PROJECT_ID = "technical-assessment-504501"  # Your verified GCP Project ID
+PROJECT_ID = "technical-assessment-504501"  
 BUCKET_NAME = "alchemialabs-tech-assessment"
 DATASET_ID = "alchemia_dataset"
 
@@ -43,15 +43,13 @@ def automate_gcs_to_bigquery():
         uri_file = f"gs://{BUCKET_NAME}/{blob.name}"
         
         # ==============================================================
-        # CRITICAL UPDATE: FILE IDENTIFICATION & TARGET TABLE ROUTING
+        # FILE IDENTIFICATION & TARGET TABLE ROUTING
         # ==============================================================
-        # Base schema fallback variables
         explicit_schema = None
         
         if "crm_accounts" in blob.name:
             # Route all variations of accounts into a single historical destination table
             table_name = "crm_accounts"
-            # Explicitly enforce string schema to bypass mismatched column positions and data corruption
             explicit_schema = [
                 bigquery.SchemaField("account_id", "STRING"),
                 bigquery.SchemaField("name", "STRING"),
@@ -68,12 +66,28 @@ def automate_gcs_to_bigquery():
         elif "crm_contacts" in blob.name:
             # Route all variations of contacts into its own historical destination table
             table_name = "crm_contacts"
-            # Fallback 8-column layout using safe data types for text data containing bad commas
             explicit_schema = [
                 bigquery.SchemaField("col1", "STRING"), bigquery.SchemaField("col2", "STRING"),
                 bigquery.SchemaField("col3", "STRING"), bigquery.SchemaField("col4", "STRING"),
                 bigquery.SchemaField("col5", "STRING"), bigquery.SchemaField("col6", "STRING"),
                 bigquery.SchemaField("col7", "STRING"), bigquery.SchemaField("col8", "STRING")
+            ]
+            
+        # ==============================================================
+        # NEW FIX: ROUTE ALL OPPORTUNITIES INTO A SINGLE TABLE
+        # ==============================================================
+        elif "crm_opportunities" in blob.name or "opportunity" in blob.name.lower():
+            table_name = "crm_opportunities"
+            # Define your opportunity fields here (Enforcing STRING fields avoids column mismatch breaks)
+            explicit_schema = [
+                bigquery.SchemaField("opportunity_id", "STRING"),
+                bigquery.SchemaField("account_id", "STRING"),
+                bigquery.SchemaField("opportunity_name", "STRING"),
+                bigquery.SchemaField("amount", "STRING"),
+                bigquery.SchemaField("stage", "STRING"),
+                bigquery.SchemaField("close_date", "STRING"),
+                bigquery.SchemaField("created_at", "STRING"),
+                bigquery.SchemaField("updated_at", "STRING")
             ]
         else:
             # Standard treatment for clean files outside of the corrupted CRM subfolders
@@ -89,13 +103,16 @@ def automate_gcs_to_bigquery():
         if clean_ext == "csv":
             source_format = bigquery.SourceFormat.CSV
             
+            # Use APPEND for accounts, contacts, and opportunities to merge multiple files together safely
+            is_combined_table = table_name in ["crm_accounts", "crm_contacts", "crm_opportunities"]
+            write_mode = bigquery.WriteDisposition.WRITE_APPEND if is_combined_table else bigquery.WriteDisposition.WRITE_TRUNCATE
+            
             job_config = bigquery.LoadJobConfig(
                 source_format=source_format,
-                max_bad_records=50000,       # High tolerance limit to bypass bad rows
-                allow_quoted_newlines=True,  # Handles text blocks containing multi-line values
-                ignore_unknown_values=True,  # Discards the 12th extra column in an 11-column table layout
-                # Appends data since multiple daily crm dumps belong to the same entities
-                write_disposition=bigquery.WriteDisposition.WRITE_APPEND if explicit_schema else bigquery.WriteDisposition.WRITE_TRUNCATE
+                max_bad_records=50000,       
+                allow_quoted_newlines=True,  
+                ignore_unknown_values=True,  
+                write_disposition=write_mode
             )
             
             if explicit_schema:
@@ -134,16 +151,11 @@ def automate_gcs_to_bigquery():
                 table_ref, 
                 job_config=job_config
             )
-            load_job.result()  # Wait for the loading job to complete.
+            load_job.result()  
             
-            # Confirmation of the created table status
             created_table = bq_client.get_table(table_ref)
             print(f"✔ Target Table '{table_name}' processed. Current row count: {created_table.num_rows}\n")
         except Exception as e:
-            # Loop continues safely if an unexpected underlying data breakdown happens
             print(f"❌ Skipped/Failed file {blob.name} due to format errors: {e}\n")
 
     print("====== The entire bucket has been processed. ======")
-
-if __name__ == "__main__":
-    automate_gcs_to_bigquery()
