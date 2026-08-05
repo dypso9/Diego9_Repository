@@ -72,13 +72,9 @@ def automate_gcs_to_bigquery():
                 bigquery.SchemaField("col5", "STRING"), bigquery.SchemaField("col6", "STRING"),
                 bigquery.SchemaField("col7", "STRING"), bigquery.SchemaField("col8", "STRING")
             ]
-            
-        # ==============================================================
-        # NEW FIX: ROUTE ALL OPPORTUNITIES INTO A SINGLE TABLE
-        # ==============================================================
         elif "crm_opportunities" in blob.name or "opportunity" in blob.name.lower():
+            # FIXED: Placed correctly inside the sequential if-elif chain
             table_name = "crm_opportunities"
-            # Define your opportunity fields here (Enforcing STRING fields avoids column mismatch breaks)
             explicit_schema = [
                 bigquery.SchemaField("opportunity_id", "STRING"),
                 bigquery.SchemaField("account_id", "STRING"),
@@ -159,3 +155,6 @@ def automate_gcs_to_bigquery():
             print(f"❌ Skipped/Failed file {blob.name} due to format errors: {e}\n")
 
     print("====== The entire bucket has been processed. ======")
+
+if __name__ == "__main__":
+    automate_gcs_to_bigquery()
