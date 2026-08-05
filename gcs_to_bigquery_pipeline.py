@@ -190,6 +190,3 @@ def automate_gcs_to_bigquery():
 
 if __name__ == "__main__":
     automate_gcs_to_bigquery()
-
-if __name__ == "__main__":
-    automate_gcs_to_bigquery()
