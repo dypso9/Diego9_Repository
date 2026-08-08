@@ -1,43 +1,114 @@
+# ==================================================================
+# GitHub Actions Workflow: GCS to BigQuery Data Pipeline
+# ------------------------------------------------------------------
+# This workflow automates two Python scripts that move data into
+# BigQuery: a general GCS-to-BigQuery ingestion pipeline, followed by
+# a specific ETL job that extracts the public Iowa liquor sales
+# dataset. It's triggered manually rather than on a schedule or code push.
+# ==================================================================
+
 name: GCS to BigQuery Data Pipeline
 
+# ----------------------------------------------------------------
+# "on" defines what triggers this workflow.
+# -----------------
 on:
+  # workflow_dispatch means this workflow does NOT run automatically —
+  # it only runs when someone manually clicks "Run workflow" in the
+  # GitHub Actions tab (or triggers it via the GitHub API/CLI). No
+  # push, pull_request, or schedule trigger is configured here, so
+  # nothing runs unless a person (or an external automation) starts it.
   workflow_dispatch: # Allows you to manually trigger this pipeline with a click of a button in GitHub
 
 jobs:
   run-pipeline:
+    # The job runs on a GitHub-hosted Ubuntu virtual machine. Each run
+    # starts from a clean environment — nothing installed in a previous
+    # run persists here.
     runs-on: ubuntu-latest
+    # Permissions granted to the GITHUB_TOKEN for this job (least-privilege:
+    # only what's needed is granted, nothing more):
     permissions:
-      contents: 'read'
+      contents: 'read' # allows checking out the repository's code
       id-token: 'write'
+      # allows generating an OIDC token, used for
+      # secure, keyless authentication to external
+      # providers like Google Cloud (Workload Identity
+      # Federation) if configured that way
+      # The ordered list of steps this job executes, top to bottom. If any
+      # step fails, the job stops there by default and later steps are skipped.
 
     steps:
+      # ----------------------------------------------------------------
+      # Step 1: Pull the repository's code onto the runner
+      # ----------------------------------------------------------------
+      # Without this, the runner is an empty machine with no access to
+      # your scripts (gcs_to_bigquery_pipeline.py, etl_iowa_liquor.py, etc.).
     - name: Checkout Repository Code
       uses: actions/checkout@v4
 
+    # ----------------------------------------------------------------
+      # Step 2: Install a specific Python version on the runner
+      # ----------------------------------------------------------------
+      # Pins the environment to Python 3.10 specifically, regardless of
+      # whatever version(s) ubuntu-latest ships with by default — keeps
+      # the pipeline's behavior consistent and reproducible across runs.
     - name: Set up Python 3.10
       uses: actions/setup-python@v5
       with:
         python-version: '3.10'
 
+    # ----------------------------------------------------------------
+      # Step 3: Install the Python packages the scripts depend on
+      # ----------------------------------------------------------------
+      # These are the client libraries both Python scripts use to talk
+      # to Cloud Storage and BigQuery via their APIs.
     - name: Install Google Cloud Libraries
       run: |
         pip install google-cloud-storage google-cloud-bigquery
 
+    # ----------------------------------------------------------------
+      # Step 4: Install the gcloud and bq command-line tools
+      # ----------------------------------------------------------------
+      # Not strictly required for the Python API calls to work, but
+      # having the CLI tools available is useful for debugging or if
+      # either script (or a future step) needs to shell out to them.
     - name: Install Google Cloud SDK (gcloud & bq tools)
       uses: google-github-actions/setup-gcloud@v2
 
+     # ----------------------------------------------------------------
+      # Step 5: Authenticate this runner to Google Cloud
+      # ----------------------------------------------------------------
+      # Without this step, neither Python script would have permission
+      # to read from Cloud Storage or write to BigQuery — this is what
+      # makes the Application Default Credentials that both scripts rely
+      # on (implicitly, via bigquery.Client()) actually available.
     - name: Authenticate to Google Cloud
       uses: google-github-actions/auth@v2
       with:
+       # The service account key is stored as an encrypted GitHub
+       # secret (never hardcoded in the workflow file) and injected
+       # here at run time. GCP_SA_KEY must be configured under the
+       # repository's Settings → Secrets and variables → Actions.
         credentials_json: ${{ secrets.GCP_SA_KEY }} # Securely loads your secret access key
 
+     # ----------------------------------------------------------------
+      # Step 6: Run the main ingestion pipeline
+      # ----------------------------------------------------------------
+      # Executes the script that loads files from the GCS bucket into
+      # their respective BigQuery tables.
     - name: Run Pipeline Script
       run: |
         python gcs_to_bigquery_pipeline.py
 
-     # ==============================================================
+    # ==============================================================
     # EXTENSION STEP: RUN PUBLIC IOWA LIQUOR EXTRACTION
     # ==============================================================
+    # A second, independent step tacked onto the same job — runs
+    # after the main pipeline step completes successfully. Since job
+    # steps execute sequentially and a failed step stops the job by
+    # default (no "continue-on-error" or "if:" override is set here),
+    # this step is skipped entirely if "Run Pipeline Script" fails.
     - name: Run Iowa Liquor Sales ETL Script
       run: |
         python etl_iowa_liquor.py
